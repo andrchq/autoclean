@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 #
-# Server cleanup utility.  Review before executing remotely:
-#   curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/<TAG>/cleanup-server.sh \
-#     | sudo bash -s -- --yes
+# Server cleanup utility.  Always run the latest version with:
+#   curl -fsSL "https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh?ts=$(date +%s)" | sudo bash
 #
 # Default mode is a dry-run.  Actions that can affect deployments need an
 # explicit flag; see --help.
@@ -13,7 +12,7 @@ IFS=$'\n\t'
 
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
-readonly VERSION="1.1.4"
+readonly VERSION="1.1.5"
 
 # An invocation without arguments opens the wizard when a controlling terminal
 # is available.  It also works with `curl ... | sudo bash`, where stdin is the

@@ -30,27 +30,29 @@ Docker, удаление неиспользуемых пакетов, volumes и
 
 ## Запуск из GitHub
 
-Сначала зафиксируйте скрипт в репозитории, создайте тег (например, `v1.1.4`) и замените плейсхолдеры в команде:
+Для интерактивного запуска последней версии всегда используйте одну и ту же команду:
 
 ```bash
-# Открыть интерактивное меню: стрелки + Enter
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.4/cleanup-server.sh \
-  | sudo bash
+curl -fsSL "https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh?ts=$(date +%s)" | sudo bash
+```
 
+`ts=$(date +%s)` добавляет к адресу текущую метку времени, поэтому GitHub CDN не отдаёт сохранённую старую копию. Для аудита или автоматического запуска можно использовать команды ниже.
+
+```bash
 # Аудит без меню: ничего не меняет
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.4/cleanup-server.sh \
+curl -fsSL "https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh?ts=$(date +%s)" \
   | sudo bash -s -- --audit
 
 # Стандартная очистка
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.4/cleanup-server.sh \
+curl -fsSL "https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh?ts=$(date +%s)" \
   | sudo bash -s -- --yes
 
 # Очистка Docker (без volumes)
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.4/cleanup-server.sh \
+curl -fsSL "https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh?ts=$(date +%s)" \
   | sudo bash -s -- --yes --docker
 ```
 
-Используйте тег или конкретный SHA коммита, а не ветку `main`: так сервер всегда получает проверенную версию скрипта. Перед первым реальным запуском обязательно выполните `--dry-run` и просмотрите вывод.
+Перед первым реальным запуском обязательно выполните аудит и просмотрите вывод.
 
 ## Дополнительные флаги
 
