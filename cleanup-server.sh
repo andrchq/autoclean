@@ -13,7 +13,7 @@ IFS=$'\n\t'
 
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
-readonly VERSION="1.1.0"
+readonly VERSION="1.1.3"
 
 # An invocation without arguments opens the wizard when a controlling terminal
 # is available.  It also works with `curl ... | sudo bash`, where stdin is the
@@ -57,13 +57,33 @@ declare -i ACTIONS_PLANNED=0
 declare -i ACTIONS_DONE=0
 declare -i WARNINGS=0
 declare -i EXIT_STATUS=0
+LAST_OPERATION=''
+LAST_OPERATION_DETAILS=''
+UI_CLEANUP_RUNNING=false
+CLEANUP_STARTED_AT=0
+CLEANUP_ERROR_LOG=''
+declare -a FAILED_ACTIONS=()
+declare -a CLEANUP_NOTES=()
 
 say()       { printf '%b\n' "$*"; }
-title()     { say "\n${BLUE}${BOLD}==> $*${RESET}"; }
-ok()        { say "${GREEN}✓${RESET} $*"; }
-warn()      { ((WARNINGS+=1)); say "${YELLOW}!${RESET} $*"; }
+title()     { "$UI_CLEANUP_RUNNING" || say "\n${BLUE}${BOLD}==> $*${RESET}"; }
+ok()        { "$UI_CLEANUP_RUNNING" || say "${GREEN}✓${RESET} $*"; }
+warn()      {
+  ((WARNINGS+=1))
+  if "$UI_CLEANUP_RUNNING"; then
+    CLEANUP_NOTES+=("$*")
+  else
+    say "${YELLOW}!${RESET} $*"
+  fi
+}
 fail()      { EXIT_STATUS=1; say "${RED}✗${RESET} $*" >&2; }
-note()      { say "${GRAY}$*${RESET}"; }
+note()      {
+  if "$UI_CLEANUP_RUNNING"; then
+    CLEANUP_NOTES+=("$*")
+  else
+    say "${GRAY}$*${RESET}"
+  fi
+}
 would_do()  { ((ACTIONS_PLANNED+=1)); say "${GRAY}dry-run:${RESET} $*"; }
 
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
@@ -208,18 +228,73 @@ format_bytes() {
 root_available_bytes() { df -B1 --output=avail / 2>/dev/null | awk 'NR == 2 {print $1 + 0}'; }
 root_used_bytes()      { df -B1 --output=used / 2>/dev/null | awk 'NR == 2 {print $1 + 0}'; }
 
+save_failed_action_output() {
+  local description="$1" output_file="$2"
+  ((WARNINGS+=1))
+  FAILED_ACTIONS+=("$description")
+
+  if [[ -z "$CLEANUP_ERROR_LOG" ]]; then
+    CLEANUP_ERROR_LOG="/tmp/autoclean-errors-$(date +%Y%m%d-%H%M%S)-$$.log"
+    umask 077
+    : >"$CLEANUP_ERROR_LOG"
+  fi
+  {
+    printf '===== %s =====\n' "$description"
+    cat -- "$output_file" 2>/dev/null || true
+    printf '\n'
+  } >>"$CLEANUP_ERROR_LOG"
+}
+
+run_quiet_interactive() {
+  local description="$1" output_file pid frame=0 elapsed
+  local -a spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+  shift
+  output_file="$(mktemp)"
+
+  "$@" >"$output_file" 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    elapsed=$((SECONDS - CLEANUP_STARTED_AT))
+    printf '\r\033[K  %b%s%b Выполняем очистку %b[%02d:%02d]%b' \
+      "$MAGENTA" "${spinner[$((frame % ${#spinner[@]}))]}" "$RESET" \
+      "$DIM" "$((elapsed / 60))" "$((elapsed % 60))" "$RESET"
+    frame=$((frame + 1))
+    sleep 0.12
+  done
+
+  if wait "$pid"; then
+    rm -f -- "$output_file"
+    ((ACTIONS_DONE+=1))
+    return 0
+  fi
+
+  save_failed_action_output "$description" "$output_file"
+  rm -f -- "$output_file"
+  return 1
+}
+
 run() {
-  local description="$1"; shift
+  local description="$1" output_file
+  shift
   if "$DRY_RUN"; then
     would_do "$description"
     return 0
   fi
 
-  if "$@"; then
+  if "$UI_CLEANUP_RUNNING"; then
+    run_quiet_interactive "$description" "$@" || true
+    return 0
+  fi
+
+  output_file="$(mktemp)"
+  if "$@" >"$output_file" 2>&1; then
+    rm -f -- "$output_file"
     ((ACTIONS_DONE+=1))
     ok "$description"
   else
-    warn "Не удалось: $description"
+    save_failed_action_output "$description" "$output_file"
+    rm -f -- "$output_file"
+    say "${YELLOW}!${RESET} Не удалось: $description. Детали: $CLEANUP_ERROR_LOG"
   fi
 }
 
@@ -427,11 +502,18 @@ render_menu_item() {
   fi
 }
 
+render_last_operation() {
+  [[ -n "$LAST_OPERATION" ]] || return 0
+  printf '%b◽ Последнее действие:%b %b%s%b\n' "$CYAN" "$RESET" "$BOLD" "$LAST_OPERATION" "$RESET"
+  printf '  %b%s%b\n\n' "$DIM" "$LAST_OPERATION_DETAILS" "$RESET"
+}
+
 run_interactive_main_menu() {
   local cursor=0
 
   while true; do
     render_wizard_frame 'Выберите режим'
+    render_last_operation
     printf '%bСтрелки ↑/↓%b — выбор. %bEnter%b — подтвердить.\n\n' "$DIM" "$RESET" "$DIM" "$RESET"
     render_menu_item "$([[ $cursor -eq 0 ]] && printf true || printf false)" 'Аудит сервера' 'Фоновый поиск кандидатов на очистку без изменений.'
     printf '\n'
@@ -455,7 +537,6 @@ run_interactive_main_menu() {
           clear_screen
           main
         fi
-        return
         ;;
     esac
   done
@@ -696,6 +777,8 @@ run_interactive_audit() {
   read_audit_state
   printf '\r\033[K'
   elapsed=$((SECONDS - started_at))
+  LAST_OPERATION='Аудит сервера завершён'
+  LAST_OPERATION_DETAILS="${AUDIT_DISPLAY_COUNT} файлов · $(format_bytes "$AUDIT_DISPLAY_BYTES") · $((elapsed / 60)) мин $((elapsed % 60)) сек"
   render_wizard_frame 'Аудит завершён'
   printf '%b✓%b Просканированы безопасные зоны очистки %b[%d мин %d сек]%b\n\n' \
     "$GREEN$BOLD" "$RESET" "$DIM" "$((elapsed / 60))" "$((elapsed % 60))" "$RESET"
@@ -754,14 +837,29 @@ report_large_files() {
 }
 
 main() {
-  local available_before used_before available_after used_after
+  local available_before used_before available_after used_after reclaimed
+  ACTIONS_PLANNED=0
+  ACTIONS_DONE=0
+  WARNINGS=0
+  EXIT_STATUS=0
+  FAILED_ACTIONS=()
+  CLEANUP_NOTES=()
+  CLEANUP_ERROR_LOG=''
   available_before="$(root_available_bytes)"
   used_before="$(root_used_bytes)"
 
-  say "${BOLD}Server cleanup ${VERSION}${RESET}"
+  if "$INTERACTIVE_MODE" && ! "$DRY_RUN"; then
+    UI_CLEANUP_RUNNING=true
+    CLEANUP_STARTED_AT=$SECONDS
+    render_wizard_frame 'Очистка сервера'
+    printf '%bВыбранные действия выполняются в фоне. Технический вывод скрыт.%b\n\n' "$DIM" "$RESET"
+  else
+    say "${BOLD}Server cleanup ${VERSION}${RESET}"
+  fi
+
   if "$DRY_RUN"; then
     warn 'Режим проверки: ничего не будет удалено. Для очистки добавьте --yes.'
-  else
+  elif ! "$INTERACTIVE_MODE"; then
     warn 'Режим очистки включён. Удаляются только операции, перечисленные ниже.'
   fi
 
@@ -772,12 +870,18 @@ main() {
   cleanup_rotated_logs
   truncate_large_active_logs
   cleanup_docker
-  report_large_files
+  "$INTERACTIVE_MODE" || report_large_files
 
   available_after="$(root_available_bytes)"
   used_after="$(root_used_bytes)"
 
-  title 'Итог'
+  if "$INTERACTIVE_MODE" && ! "$DRY_RUN"; then
+    printf '\r\033[K'
+    UI_CLEANUP_RUNNING=false
+    render_wizard_frame 'Очистка завершена'
+  else
+    title 'Итог'
+  fi
   if "$DRY_RUN"; then
     say "Режим:              ${YELLOW}dry-run${RESET}"
     say "Операций в плане:   ${ACTIONS_PLANNED}"
@@ -788,6 +892,20 @@ main() {
     say "Использовано до/после: $(format_bytes "$used_before") → $(format_bytes "$used_after")"
   fi
   (( WARNINGS == 0 )) || say "Предупреждений:      ${YELLOW}${WARNINGS}${RESET}"
+
+  if "$INTERACTIVE_MODE"; then
+    reclaimed=$((available_after - available_before))
+    (( reclaimed >= 0 )) || reclaimed=0
+    LAST_OPERATION='Очистка сервера завершена'
+    LAST_OPERATION_DETAILS="${ACTIONS_DONE} операций · освобождено $(format_bytes "$reclaimed") · предупреждений: ${WARNINGS}"
+    if (( ${#FAILED_ACTIONS[@]} > 0 )); then
+      say
+      say "${YELLOW}!${RESET} Не выполнено операций: ${#FAILED_ACTIONS[@]}. Детали сохранены: ${CLEANUP_ERROR_LOG}"
+    fi
+    say
+    say "${DIM}Нажмите Enter, чтобы вернуться в главное меню.${RESET}"
+    wait_for_enter
+  fi
 
   return "$EXIT_STATUS"
 }

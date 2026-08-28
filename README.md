@@ -24,25 +24,29 @@ Docker, удаление неиспользуемых пакетов, volumes и
 
 В интерактивном режиме включены только безопасные пункты: кеши, journal, crash dumps, старые tmp-файлы и старые ротации логов. Docker, volumes, autoremove и обнуление активных логов выключены по умолчанию.
 
+После аудита или очистки результат остаётся на экране до Enter. Затем скрипт возвращает в главное меню и показывает последнее выполненное действие с его счётчиками.
+
+Во время интерактивной очистки терминал не заполняется выводом `apt`, Docker и других команд: отображается только спиннер с общим таймером. Если отдельная операция не выполнится, её технический вывод будет сохранён в закрытом логе вида `/tmp/autoclean-errors-YYYYMMDD-HHMMSS-PID.log`.
+
 ## Запуск из GitHub
 
-Сначала зафиксируйте скрипт в репозитории, создайте тег (например, `v1.1.0`) и замените плейсхолдеры в команде:
+Сначала зафиксируйте скрипт в репозитории, создайте тег (например, `v1.1.3`) и замените плейсхолдеры в команде:
 
 ```bash
 # Открыть интерактивное меню: стрелки + Enter
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.0/cleanup-server.sh \
+curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.3/cleanup-server.sh \
   | sudo bash
 
 # Аудит без меню: ничего не меняет
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.0/cleanup-server.sh \
+curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.3/cleanup-server.sh \
   | sudo bash -s -- --audit
 
 # Стандартная очистка
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.0/cleanup-server.sh \
+curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.3/cleanup-server.sh \
   | sudo bash -s -- --yes
 
 # Очистка Docker (без volumes)
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.0/cleanup-server.sh \
+curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.3/cleanup-server.sh \
   | sudo bash -s -- --yes --docker
 ```
 
