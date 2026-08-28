@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 #
-# Server cleanup utility.  First run installs `cll`; afterwards use `sudo cll`.
+# Server cleanup utility.  First run installs `cll`; afterwards use `cll`.
 #   curl -fsSL "https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh?ts=$(date +%s)" | sudo bash
 #
 # Default mode is a dry-run.  Actions that can affect deployments need an
@@ -12,7 +12,7 @@ IFS=$'\n\t'
 
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
-readonly VERSION="1.1.6"
+readonly VERSION="1.1.7"
 readonly INSTALL_PATH='/usr/local/bin/cll'
 readonly REMOTE_SCRIPT_URL='https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh'
 
@@ -97,7 +97,7 @@ usage() {
 ${SCRIPT_NAME} ${VERSION} — безопасная очистка Linux-сервера
 
 Использование:
-  sudo cll [options]              # после первой установки
+  cll [options]                   # после первой установки
   sudo bash ${SCRIPT_NAME} [options]
 
 По умолчанию включён dry-run: скрипт ничего не меняет.
@@ -122,11 +122,11 @@ ${SCRIPT_NAME} ${VERSION} — безопасная очистка Linux-серв
   --active-log-min-size SIZE    порог для --truncate-logs (100M)
 
 Примеры:
-  sudo cll
-  sudo cll --audit
-  sudo cll --yes
-  sudo cll --yes --docker
-  sudo cll --yes --docker --docker-volumes --autoremove
+  cll
+  cll --audit
+  cll --yes
+  cll --yes --docker
+  cll --yes --docker --docker-volumes --autoremove
 
 Важно: отчёт о крупных файлах ничего не удаляет. Скрипт не трогает /home,
 данные приложений, Docker volumes без отдельного флага и активные логи без
@@ -215,7 +215,10 @@ if (( ORIGINAL_ARG_COUNT == 0 )) && [[ -r /dev/tty && -w /dev/tty && -t 1 ]]; th
 fi
 
 if (( EUID != 0 )); then
-  fail "Запустите скрипт от root: sudo bash ${SCRIPT_NAME} ..."
+  if [[ -x "$INSTALL_PATH" && ( "$0" == 'cll' || "$0" == "$INSTALL_PATH" ) ]] && has_cmd sudo; then
+    exec sudo "$INSTALL_PATH" "${ORIGINAL_ARGS[@]}"
+  fi
+  fail "Для первой установки используйте: curl -fsSL <URL> | sudo bash"
   exit 1
 fi
 
