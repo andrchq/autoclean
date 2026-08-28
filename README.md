@@ -28,28 +28,33 @@ Docker, удаление неиспользуемых пакетов, volumes и
 
 Во время интерактивной очистки терминал не заполняется выводом `apt`, Docker и других команд: отображается только спиннер с общим таймером. Если отдельная операция не выполнится, её технический вывод будет сохранён в закрытом логе вида `/tmp/autoclean-errors-YYYYMMDD-HHMMSS-PID.log`.
 
-## Запуск из GitHub
+## Установка и запуск
 
-Для интерактивного запуска последней версии всегда используйте одну и ту же команду:
+Первый запуск — одна команда. Она установит скрипт как `/usr/local/bin/cll`:
 
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh?ts=$(date +%s)" | sudo bash
 ```
 
-`ts=$(date +%s)` добавляет к адресу текущую метку времени, поэтому GitHub CDN не отдаёт сохранённую старую копию. Для аудита или автоматического запуска можно использовать команды ниже.
+После этого всегда запускайте его так:
+
+```bash
+sudo cll
+```
+
+При каждом запуске `cll` проверяет новую версию в GitHub. Если она есть, команда автоматически обновляет файл и перезапускается уже на новой версии. `ts=$(date +%s)` в первой команде предотвращает выдачу старой копии из кеша GitHub CDN.
+
+Для аудита или автоматического запуска используйте `cll` с параметрами:
 
 ```bash
 # Аудит без меню: ничего не меняет
-curl -fsSL "https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh?ts=$(date +%s)" \
-  | sudo bash -s -- --audit
+sudo cll --audit
 
 # Стандартная очистка
-curl -fsSL "https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh?ts=$(date +%s)" \
-  | sudo bash -s -- --yes
+sudo cll --yes
 
 # Очистка Docker (без volumes)
-curl -fsSL "https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh?ts=$(date +%s)" \
-  | sudo bash -s -- --yes --docker
+sudo cll --yes --docker
 ```
 
 Перед первым реальным запуском обязательно выполните аудит и просмотрите вывод.
@@ -73,7 +78,7 @@ curl -fsSL "https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-ser
 Подробная справка доступна так:
 
 ```bash
-sudo bash cleanup-server.sh --help
+sudo cll --help
 ```
 
 ## Важное ограничение

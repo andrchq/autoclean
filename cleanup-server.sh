@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 #
-# Server cleanup utility.  Always run the latest version with:
+# Server cleanup utility.  First run installs `cll`; afterwards use `sudo cll`.
 #   curl -fsSL "https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh?ts=$(date +%s)" | sudo bash
 #
 # Default mode is a dry-run.  Actions that can affect deployments need an
@@ -12,14 +12,19 @@ IFS=$'\n\t'
 
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
-readonly VERSION="1.1.5"
+readonly VERSION="1.1.6"
+readonly INSTALL_PATH='/usr/local/bin/cll'
+readonly REMOTE_SCRIPT_URL='https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh'
 
 # An invocation without arguments opens the wizard when a controlling terminal
 # is available.  It also works with `curl ... | sudo bash`, where stdin is the
 # script itself, because the wizard reads keys from /dev/tty.
 ORIGINAL_ARG_COUNT=$#
+ORIGINAL_ARGS=("$@")
 INTERACTIVE_MODE=false
 AUDIT_ONLY=false
+SKIP_SELF_UPDATE=false
+STARTUP_NOTICE=''
 
 # ANSI is enabled only on an interactive terminal.
 if [[ -t 1 && "${NO_COLOR:-}" == "" ]]; then
@@ -92,6 +97,7 @@ usage() {
 ${SCRIPT_NAME} ${VERSION} — безопасная очистка Linux-сервера
 
 Использование:
+  sudo cll [options]              # после первой установки
   sudo bash ${SCRIPT_NAME} [options]
 
 По умолчанию включён dry-run: скрипт ничего не меняет.
@@ -116,11 +122,11 @@ ${SCRIPT_NAME} ${VERSION} — безопасная очистка Linux-серв
   --active-log-min-size SIZE    порог для --truncate-logs (100M)
 
 Примеры:
-  sudo bash ${SCRIPT_NAME}
-  sudo bash ${SCRIPT_NAME} --audit
-  sudo bash ${SCRIPT_NAME} --yes
-  sudo bash ${SCRIPT_NAME} --yes --docker
-  sudo bash ${SCRIPT_NAME} --yes --docker --docker-volumes --autoremove
+  sudo cll
+  sudo cll --audit
+  sudo cll --yes
+  sudo cll --yes --docker
+  sudo cll --yes --docker --docker-volumes --autoremove
 
 Важно: отчёт о крупных файлах ничего не удаляет. Скрипт не трогает /home,
 данные приложений, Docker volumes без отдельного флага и активные логи без
@@ -182,6 +188,11 @@ while (($#)); do
       require_value "$1" "${2:-}"; ACTIVE_LOG_MIN_SIZE="$2"; validate_size "$1" "$2"; shift ;;
     --large-file-limit)
       require_value "$1" "${2:-}"; LARGE_FILE_LIMIT="$2"; validate_positive_integer "$1" "$2"; shift ;;
+    --internal-restart)
+      SKIP_SELF_UPDATE=true
+      ORIGINAL_ARG_COUNT=$((ORIGINAL_ARG_COUNT - 1))
+      STARTUP_NOTICE="Команда cll установлена и обновлена до версии ${VERSION}."
+      ;;
     -h|--help) usage; exit 0 ;;
     -v|--version) printf '%s %s\n' "$SCRIPT_NAME" "$VERSION"; exit 0 ;;
     *) fail "Неизвестная опция: $1"; usage; exit 2 ;;
@@ -207,6 +218,107 @@ if (( EUID != 0 )); then
   fail "Запустите скрипт от root: sudo bash ${SCRIPT_NAME} ..."
   exit 1
 fi
+
+# ---------- INSTALLATION AND SELF-UPDATE ----------
+download_latest_script() {
+  local destination="$1" url=''
+  url="${REMOTE_SCRIPT_URL}?ts=$(date +%s)"
+
+  if has_cmd curl; then
+    curl -fsSL --connect-timeout 10 --max-time 120 "$url" -o "$destination"
+  elif has_cmd wget; then
+    wget -q --timeout=30 --tries=2 "$url" -O "$destination"
+  else
+    return 1
+  fi
+}
+
+script_version_from_file() {
+  awk -F'"' '/^readonly VERSION="[0-9]+\.[0-9]+\.[0-9]+"$/ { print $2; exit }' "$1"
+}
+
+is_valid_downloaded_script() {
+  local file="$1" version=''
+  [[ "$(head -n 1 -- "$file" 2>/dev/null)" == '#!/usr/bin/env bash' ]] || return 1
+  version="$(script_version_from_file "$file")"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+version_is_newer() {
+  local candidate="$1" current="$2" index
+  local -a candidate_parts current_parts
+  IFS='.' read -r -a candidate_parts <<<"$candidate"
+  IFS='.' read -r -a current_parts <<<"$current"
+
+  for index in 0 1 2; do
+    if (( 10#${candidate_parts[$index]} > 10#${current_parts[$index]} )); then
+      return 0
+    fi
+    if (( 10#${candidate_parts[$index]} < 10#${current_parts[$index]} )); then
+      return 1
+    fi
+  done
+  return 1
+}
+
+install_script_file() {
+  local source_file="$1" staged_file="${INSTALL_PATH}.new.$$"
+  if install -m 0755 -- "$source_file" "$staged_file" >/dev/null 2>&1 \
+    && mv -f -- "$staged_file" "$INSTALL_PATH" >/dev/null 2>&1; then
+    return 0
+  fi
+  rm -f -- "$staged_file"
+  return 1
+}
+
+current_script_path() {
+  local invoked_as="$0"
+  if [[ "$invoked_as" != */* ]]; then
+    invoked_as="$(command -v -- "$invoked_as" 2>/dev/null || printf '%s' "$invoked_as")"
+  fi
+  readlink -f -- "$invoked_as" 2>/dev/null || printf '%s\n' "$invoked_as"
+}
+
+ensure_cll_is_current() {
+  local downloaded_file remote_version current_path
+
+  "$SKIP_SELF_UPDATE" && return 0
+  downloaded_file="$(mktemp "${TMPDIR:-/tmp}/autoclean-update.XXXXXX")"
+  if ! download_latest_script "$downloaded_file" || ! is_valid_downloaded_script "$downloaded_file"; then
+    rm -f -- "$downloaded_file"
+    STARTUP_NOTICE='Не удалось проверить обновление. Запущена текущая версия.'
+    return 0
+  fi
+
+  remote_version="$(script_version_from_file "$downloaded_file")"
+  current_path="$(current_script_path)"
+
+  # The initial curl | bash run has no local script to copy. Install the
+  # canonical GitHub version first, then restart from its permanent location.
+  if [[ "$current_path" != "$INSTALL_PATH" ]]; then
+    if ! install_script_file "$downloaded_file"; then
+      rm -f -- "$downloaded_file"
+      STARTUP_NOTICE="Не удалось установить ${INSTALL_PATH}. Скрипт продолжит работу без команды cll."
+      return 0
+    fi
+    rm -f -- "$downloaded_file"
+    exec "$INSTALL_PATH" --internal-restart "${ORIGINAL_ARGS[@]}"
+  fi
+
+  if version_is_newer "$remote_version" "$VERSION"; then
+    if ! install_script_file "$downloaded_file"; then
+      rm -f -- "$downloaded_file"
+      STARTUP_NOTICE='Не удалось установить обновление. Запущена текущая версия.'
+      return 0
+    fi
+    rm -f -- "$downloaded_file"
+    exec "$INSTALL_PATH" --internal-restart "${ORIGINAL_ARGS[@]}"
+  fi
+
+  rm -f -- "$downloaded_file"
+}
+
+ensure_cll_is_current
 
 on_error() {
   local exit_code=$?
@@ -458,6 +570,9 @@ render_wizard_frame() {
   printf '%b║                  AUTO CLEAN | andrchq                     ║%b\n' "$HEADER" "$RESET"
   printf '%b╚═══════════════════════════════════════════════════════════╝%b\n' "$BLUE" "$RESET"
   printf '  %bВерсия:%b %s    %bСервер:%b %s\n\n' "$CYAN" "$RESET" "$VERSION" "$CYAN" "$RESET" "$(hostname -s 2>/dev/null || hostname)"
+  if [[ -n "$STARTUP_NOTICE" ]]; then
+    printf '  %b✓%b %b%s%b\n\n' "$GREEN$BOLD" "$RESET" "$DIM" "$STARTUP_NOTICE" "$RESET"
+  fi
   printf '%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n' "$BLUE" "$RESET"
   printf '%b%s%b\n' "$BOLD$CYAN" "$section" "$RESET"
   printf '%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n\n' "$BLUE" "$RESET"
