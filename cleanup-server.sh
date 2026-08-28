@@ -13,7 +13,7 @@ IFS=$'\n\t'
 
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
-readonly VERSION="1.1.3"
+readonly VERSION="1.1.4"
 
 # An invocation without arguments opens the wizard when a controlling terminal
 # is available.  It also works with `curl ... | sudo bash`, where stdin is the
@@ -456,7 +456,7 @@ render_wizard_frame() {
   local section="$1"
   clear_screen
   printf '%b╔═══════════════════════════════════════════════════════════╗%b\n' "$BLUE" "$RESET"
-  printf '%b║              AUTO CLEAN · SERVER MAINTENANCE              ║%b\n' "$HEADER" "$RESET"
+  printf '%b║                  AUTO CLEAN | andrchq                     ║%b\n' "$HEADER" "$RESET"
   printf '%b╚═══════════════════════════════════════════════════════════╝%b\n' "$BLUE" "$RESET"
   printf '  %bВерсия:%b %s    %bСервер:%b %s\n\n' "$CYAN" "$RESET" "$VERSION" "$CYAN" "$RESET" "$(hostname -s 2>/dev/null || hostname)"
   printf '%b━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%b\n' "$BLUE" "$RESET"

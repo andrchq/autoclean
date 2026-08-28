@@ -30,23 +30,23 @@ Docker, удаление неиспользуемых пакетов, volumes и
 
 ## Запуск из GitHub
 
-Сначала зафиксируйте скрипт в репозитории, создайте тег (например, `v1.1.3`) и замените плейсхолдеры в команде:
+Сначала зафиксируйте скрипт в репозитории, создайте тег (например, `v1.1.4`) и замените плейсхолдеры в команде:
 
 ```bash
 # Открыть интерактивное меню: стрелки + Enter
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.3/cleanup-server.sh \
+curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.4/cleanup-server.sh \
   | sudo bash
 
 # Аудит без меню: ничего не меняет
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.3/cleanup-server.sh \
+curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.4/cleanup-server.sh \
   | sudo bash -s -- --audit
 
 # Стандартная очистка
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.3/cleanup-server.sh \
+curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.4/cleanup-server.sh \
   | sudo bash -s -- --yes
 
 # Очистка Docker (без volumes)
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.3/cleanup-server.sh \
+curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/v1.1.4/cleanup-server.sh \
   | sudo bash -s -- --yes --docker
 ```
 
