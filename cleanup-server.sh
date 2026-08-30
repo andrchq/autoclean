@@ -12,7 +12,7 @@ IFS=$'\n\t'
 
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
-readonly VERSION="1.1.7"
+readonly VERSION="1.1.8"
 readonly INSTALL_PATH='/usr/local/bin/cll'
 readonly REMOTE_SCRIPT_URL='https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh'
 
@@ -433,7 +433,7 @@ remove_old_empty_tmp_directory() {
 }
 
 cleanup_package_cache() {
-  "$CLEAN_PACKAGE_CACHE" || return
+  "$CLEAN_PACKAGE_CACHE" || return 0
   title 'Кеш пакетного менеджера'
   local manager_found=false
 
@@ -466,7 +466,7 @@ cleanup_package_cache() {
 }
 
 cleanup_journal() {
-  "$CLEAN_JOURNAL" || return
+  "$CLEAN_JOURNAL" || return 0
   title 'Systemd journal'
   if ! has_cmd journalctl; then
     note 'journalctl не найден — пропуск.'
@@ -476,7 +476,7 @@ cleanup_journal() {
 }
 
 cleanup_crash_dumps() {
-  "$CLEAN_CRASH_DUMPS" || return
+  "$CLEAN_CRASH_DUMPS" || return 0
   title 'Crash dumps'
   local directory path
   for directory in /var/crash /var/lib/systemd/coredump /var/lib/apport/coredump; do
@@ -488,7 +488,7 @@ cleanup_crash_dumps() {
 }
 
 cleanup_tmp() {
-  "$CLEAN_TMP" || return
+  "$CLEAN_TMP" || return 0
   title "Временные файлы старше ${TMP_AGE_DAYS} дн."
   local directory path
   for directory in /tmp /var/tmp; do
@@ -513,10 +513,10 @@ is_rotated_log() {
 }
 
 cleanup_rotated_logs() {
-  "$CLEAN_ROTATED_LOGS" || return
+  "$CLEAN_ROTATED_LOGS" || return 0
   title "Ротации логов /var/log старше ${ROTATED_LOG_AGE_DAYS} дн."
   local path name
-  [[ -d /var/log ]] || return
+  [[ -d /var/log ]] || return 0
   while IFS= read -r -d '' path; do
     name="${path##*/}"
     is_rotated_log "$name" || continue
@@ -525,10 +525,10 @@ cleanup_rotated_logs() {
 }
 
 truncate_large_active_logs() {
-  "$WITH_TRUNCATE_LOGS" || return
+  "$WITH_TRUNCATE_LOGS" || return 0
   title "Активные логи /var/log больше ${ACTIVE_LOG_MIN_SIZE}"
   local path name
-  [[ -d /var/log ]] || return
+  [[ -d /var/log ]] || return 0
 
   while IFS= read -r -d '' path; do
     name="${path##*/}"
@@ -542,7 +542,7 @@ truncate_large_active_logs() {
 }
 
 cleanup_docker() {
-  "$WITH_DOCKER" || return
+  "$WITH_DOCKER" || return 0
   title 'Docker'
   if ! has_cmd docker; then
     warn 'Docker не найден — пропуск.'
