@@ -12,7 +12,7 @@ IFS=$'\n\t'
 
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
-readonly VERSION="1.1.8"
+readonly VERSION="1.1.9"
 readonly INSTALL_PATH='/usr/local/bin/cll'
 readonly REMOTE_SCRIPT_URL='https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh'
 
@@ -636,6 +636,8 @@ run_interactive_main_menu() {
     printf '\n'
     render_menu_item "$([[ $cursor -eq 1 ]] && printf true || printf false)" 'Очистка сервера' 'Сначала выберите, что именно нужно очистить.'
     printf '\n'
+    render_menu_item "$([[ $cursor -eq 2 ]] && printf true || printf false)" 'Выход' 'Завершить работу скрипта.'
+    printf '\n'
 
     read_wizard_key
     case "$WIZARD_KEY" in
@@ -643,16 +645,20 @@ run_interactive_main_menu() {
         if (( cursor > 0 )); then cursor=$((cursor - 1)); fi
         ;;
       down)
-        if (( cursor < 1 )); then cursor=$((cursor + 1)); fi
+        if (( cursor < 2 )); then cursor=$((cursor + 1)); fi
         ;;
       enter)
         if (( cursor == 0 )); then
           run_interactive_audit
-        else
+        elif (( cursor == 1 )); then
           configure_interactive_cleanup
           DRY_RUN=false
           clear_screen
           main
+        else
+          render_wizard_frame 'До новых встреч'
+          printf '\n  %bХорошего дня!%b\n\n' "$GREEN$BOLD" "$RESET"
+          exit 0
         fi
         ;;
     esac
