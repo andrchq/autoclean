@@ -12,7 +12,7 @@ IFS=$'\n\t'
 
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
-readonly VERSION="1.2.1"
+readonly VERSION="1.2.2"
 readonly INSTALL_PATH='/usr/local/bin/cll'
 readonly REMOTE_SCRIPT_URL='https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh'
 readonly TASKS_DIR="${AUTOCLEAN_TASKS_DIR:-/etc/autoclean/tasks}"
@@ -1570,10 +1570,11 @@ run_auto_cleanup_menu() {
 AUDIT_STATE_DIR=''
 AUDIT_COUNT=0
 AUDIT_BYTES=0
+AUDIT_LARGE_LOG_BYTES=0
 
 audit_write_state() {
   local pending_file="${AUDIT_STATE_DIR}/state.pending"
-  printf '%s\t%s\n' "$AUDIT_COUNT" "$AUDIT_BYTES" >"$pending_file"
+  printf '%s\t%s\t%s\n' "$AUDIT_COUNT" "$AUDIT_BYTES" "$AUDIT_LARGE_LOG_BYTES" >"$pending_file"
   mv -f -- "$pending_file" "${AUDIT_STATE_DIR}/state"
 }
 
@@ -1584,6 +1585,9 @@ audit_add_candidate() {
   [[ "$size" =~ ^[0-9]+$ ]] || size=0
   AUDIT_COUNT=$((AUDIT_COUNT + 1))
   AUDIT_BYTES=$((AUDIT_BYTES + size))
+  if [[ "${2:-}" == large-log ]]; then
+    AUDIT_LARGE_LOG_BYTES=$((AUDIT_LARGE_LOG_BYTES + size))
+  fi
   if (( AUDIT_COUNT % 25 == 0 )); then
     audit_write_state
   fi
@@ -1604,19 +1608,24 @@ audit_scan_directory() {
 }
 
 audit_scan_rotated_logs() {
-  local path name
-  [[ -d /var/log ]] || return 0
-  while IFS= read -r -d '' path; do
+  local log_dir="${1:-/var/log}" path name kind
+  [[ -d "$log_dir" ]] || return 0
+  while IFS= read -r -d '' kind && IFS= read -r -d '' path; do
     name="${path##*/}"
-    if is_rotated_log "$name"; then
-      audit_add_candidate "$path"
+    if [[ "$kind" == large-log ]] || is_rotated_log "$name"; then
+      audit_add_candidate "$path" "$kind"
     fi
-  done < <(find /var/log -xdev -type f -mtime "+$ROTATED_LOG_AGE_DAYS" -print0 2>/dev/null)
+  done < <(find "$log_dir" -xdev -type f \( \
+    \( -path "$log_dir/syslog" -o -path "$log_dir/kern.log" \
+       -o -path "$log_dir/syslog.1" -o -path "$log_dir/kern.log.1" \) \
+    -size "+$ACTIVE_LOG_MIN_SIZE" -printf 'large-log\0%p\0' \
+    -o -mtime "+$ROTATED_LOG_AGE_DAYS" -printf 'rotated\0%p\0' \) 2>/dev/null)
 }
 
 audit_collect_candidates() {
   AUDIT_COUNT=0
   AUDIT_BYTES=0
+  AUDIT_LARGE_LOG_BYTES=0
   audit_write_state
 
   # The same locations are used by the selected standard cleanup actions.
@@ -1643,8 +1652,9 @@ read_audit_state() {
   local state_file="${AUDIT_STATE_DIR}/state"
   AUDIT_DISPLAY_COUNT=0
   AUDIT_DISPLAY_BYTES=0
+  AUDIT_DISPLAY_LARGE_LOG_BYTES=0
   if [[ -s "$state_file" ]]; then
-    IFS=$'\t' read -r AUDIT_DISPLAY_COUNT AUDIT_DISPLAY_BYTES <"$state_file" || true
+    IFS=$'\t' read -r AUDIT_DISPLAY_COUNT AUDIT_DISPLAY_BYTES AUDIT_DISPLAY_LARGE_LOG_BYTES <"$state_file" || true
   fi
 }
 
@@ -1688,9 +1698,9 @@ run_interactive_audit() {
   printf '%b✓%b Просканированы безопасные зоны очистки %b[%d мин %d сек]%b\n\n' \
     "$GREEN$BOLD" "$RESET" "$DIM" "$((elapsed / 60))" "$((elapsed % 60))" "$RESET"
   printf '  %bКандидатов на очистку:%b  %b%s%b файлов\n' "$CYAN" "$RESET" "$BOLD" "$AUDIT_DISPLAY_COUNT" "$RESET"
-  printf '  %bПотенциально освободится:%b %b%s%b\n\n' "$CYAN" "$RESET" "$GREEN$BOLD" "$(format_bytes "$AUDIT_DISPLAY_BYTES")" "$RESET"
-  printf '%bВ расчёт входят кеши, crash dumps, устаревшие tmp-файлы, ротации\n' "$DIM"
-  printf 'логов и старые journal-файлы. Данные приложений не считаются мусором.%b\n\n' "$RESET"
+  printf '  %bПотенциально освободится:%b %b%s%b\n' "$CYAN" "$RESET" "$GREEN$BOLD" "$(format_bytes "$AUDIT_DISPLAY_BYTES")" "$RESET"
+  printf '  %bИз них крупные syslog и kern.log с ротациями:%b %s\n\n' "$CYAN" "$RESET" "$(format_bytes "$AUDIT_DISPLAY_LARGE_LOG_BYTES")"
+  printf '%bДля очистки крупных syslog и kern.log с ротациями включите «Активные логи».%b\n\n' "$DIM" "$RESET"
   printf '%bНажмите Enter, чтобы завершить.%b' "$DIM" "$RESET"
   wait_for_enter
 
@@ -1705,7 +1715,8 @@ run_noninteractive_audit() {
   title 'Аудит сервера завершён'
   say "Кандидатов на очистку:  ${BOLD}${AUDIT_DISPLAY_COUNT}${RESET} файлов"
   say "Потенциально освободится: ${GREEN}${BOLD}$(format_bytes "$AUDIT_DISPLAY_BYTES")${RESET}"
-  note 'Показаны только кандидаты, подпадающие под консервативные правила очистки.'
+  say "Из них крупные syslog и kern.log с ротациями: $(format_bytes "$AUDIT_DISPLAY_LARGE_LOG_BYTES")"
+  note 'Для очистки крупных syslog и kern.log с ротациями используйте --truncate-logs.'
   rm -rf -- "$AUDIT_STATE_DIR"
   AUDIT_STATE_DIR=''
 }
