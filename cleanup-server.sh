@@ -12,7 +12,7 @@ IFS=$'\n\t'
 
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
-readonly VERSION="1.2.0"
+readonly VERSION="1.2.1"
 readonly INSTALL_PATH='/usr/local/bin/cll'
 readonly REMOTE_SCRIPT_URL='https://raw.githubusercontent.com/andrchq/autoclean/main/cleanup-server.sh'
 readonly TASKS_DIR="${AUTOCLEAN_TASKS_DIR:-/etc/autoclean/tasks}"
@@ -544,18 +544,25 @@ cleanup_rotated_logs() {
 truncate_large_active_logs() {
   "$WITH_TRUNCATE_LOGS" || return 0
   title "Активные логи /var/log больше ${ACTIVE_LOG_MIN_SIZE}"
-  local path name
-  [[ -d /var/log ]] || return 0
+  local log_dir="${1:-/var/log}" path name
+  [[ -d "$log_dir" ]] || return 0
 
   while IFS= read -r -d '' path; do
-    name="${path##*/}"
-    is_rotated_log "$name" && continue
-    case "$name" in
-      *.log|messages|syslog) ;;
-      *) continue ;;
+    case "$path" in
+      "$log_dir/syslog.1"|"$log_dir/kern.log.1")
+        remove_file "$path" 'Удалить крупную ротацию лога'
+        ;;
+      *)
+        name="${path##*/}"
+        is_rotated_log "$name" && continue
+        case "$name" in
+          *.log|messages|syslog)
+            run "Обнулить активный лог: $path" truncate --no-create -s 0 -- "$path"
+            ;;
+        esac
+        ;;
     esac
-    run "Обнулить активный лог: $path" truncate -s 0 -- "$path"
-  done < <(find /var/log -xdev -type f -size "+$ACTIVE_LOG_MIN_SIZE" -print0 2>/dev/null)
+  done < <(find "$log_dir" -xdev -type f -size "+$ACTIVE_LOG_MIN_SIZE" -print0 2>/dev/null)
 }
 
 cleanup_docker() {
@@ -1036,7 +1043,7 @@ configure_interactive_cleanup() {
     'Сохраняет данные приложений.' 'Удаляются только старые файлы и пустые папки.'
     'Активные логи не затрагиваются.' 'Не затрагивает работающие контейнеры.'
     'Доступно, только если включён Docker.' 'Может удалить пакеты, нужные для отката.'
-    'Обнуляет только стандартные логи в /var/log.'
+    'Также удаляет syslog.1 и kern.log.1, если они больше порога.'
   )
   local cursor=0 index key available selected
   local item_count="${#keys[@]}" back_index

@@ -87,8 +87,9 @@ cll --yes --docker
                               networks и build cache
 --docker-volumes              удаляет неиспользуемые volumes; требует --docker
 --autoremove                  удаляет неиспользуемые пакеты
---truncate-logs               обнуляет активные логи в /var/log только если
-                              размер превышает заданный порог
+--truncate-logs               обнуляет активные логи в /var/log на месте
+                              и удаляет syslog.1 и kern.log.1 независимо
+                              от возраста, если размер превышает порог
 --active-log-min-size 250M    меняет порог активных логов
 --tmp-age-days 14             меняет срок хранения файлов во временных папках
 --journal-max-age 14d         меняет срок хранения journal
